@@ -1,7 +1,7 @@
 import { Controller, Post, Body, UseGuards, Request } from '@nestjs/common';
 import { TicketService } from '@ticket/ticket.service';
 import { PurchaseTicketDto } from '@ticket/dtos/purchase-ticket.dto';
-import { JwtAuthGuard } from '@user/jwt.auth.guard';
+import { JwtAuthGuard } from '@common/guards/jwt.auth.guard';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 
 @ApiTags('Tickets')

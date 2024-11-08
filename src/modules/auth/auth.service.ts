@@ -1,11 +1,10 @@
-import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
+import { Injectable, UnauthorizedException, ConflictException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { User } from '@auth/user.entity';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { RegisterDto } from '@auth/dtos/register.dto';
-import { AuthResponse, LoginResponse } from '@auth/interfaces/auth-response.interface';
 
 @Injectable()
 export class AuthService {
@@ -15,92 +14,70 @@ export class AuthService {
     private readonly jwtService: JwtService,
   ) {}
 
-  async register(registerDto: RegisterDto): Promise<AuthResponse> {
-    try {
-      // Check if username exists
-      const existingUsername = await this.userRepository.findOne({ 
-        where: { username: registerDto.username } 
-      });
-      
-      if (existingUsername) {
-        return {
-          status: false,
-          message: 'Bu kullanıcı adı zaten kullanılıyor'
-        };
-      }
-
-      // Check if email exists (if provided)
-      if (registerDto.email) {
-        const existingEmail = await this.userRepository.findOne({ 
-          where: { email: registerDto.email } 
-        });
-        
-        if (existingEmail) {
-          return {
-            status: false,
-            message: 'Bu email adresi zaten kullanılıyor'
-          };
-        }
-      }
-
-      const hashedPassword = await bcrypt.hash(registerDto.password, 10);
-      
-      const user = this.userRepository.create({
-        ...registerDto,
-        password: hashedPassword,
-      });
-
-      await this.userRepository.save(user);
-      
-      return { 
-        status: true,
-        message: 'Kullanıcı başarıyla oluşturuldu'
-      };
-    } catch (error) {
-      return {
-        status: false,
-        message: 'Kullanıcı oluşturulurken bir hata oluştu'
-      };
+  async register(registerDto: RegisterDto) {
+    const existingUsername = await this.userRepository.findOne({ 
+      where: { username: registerDto.username } 
+    });
+    
+    if (existingUsername) {
+      throw new ConflictException('Bu kullanıcı adı zaten kullanılıyor');
     }
+
+    if (registerDto.email) {
+      const existingEmail = await this.userRepository.findOne({ 
+        where: { email: registerDto.email } 
+      });
+      
+      if (existingEmail) {
+        throw new ConflictException('Bu email adresi zaten kullanılıyor');
+      }
+    }
+
+    const hashedPassword = await bcrypt.hash(registerDto.password, 10);
+    
+    const user = this.userRepository.create({
+      ...registerDto,
+      password: hashedPassword,
+    });
+
+    await this.userRepository.save(user);
+    
+    return { 
+      message: 'Kullanıcı başarıyla oluşturuldu'
+    };
   }
 
-  async validateUser(username: string, password: string): Promise<any> {
-    try {
-      const user = await this.userRepository.findOne({ where: { username } });
-      if (!user) {
-        return null;
-      }
-      const isPasswordValid = await bcrypt.compare(password, user.password);
-      if (!isPasswordValid) {
-        return null;
-      }
-      const { password: _, ...result } = user;
-      return result;
-    } catch (error) {
-      return null;
+  async validateUser(username: string, password: string) {
+    const user = await this.userRepository.findOne({ where: { username } });
+    
+    if (!user) {
+      throw new UnauthorizedException('Geçersiz kullanıcı adı veya şifre');
     }
+
+    const isPasswordValid = await bcrypt.compare(password, user.password);
+    
+    if (!isPasswordValid) {
+      throw new UnauthorizedException('Geçersiz kullanıcı adı veya şifre');
+    }
+
+    const { password: _, ...result } = user;
+    return result;
   }
 
-  async login(user: any): Promise<LoginResponse> {
-    try {
-      const payload = { username: user.username, sub: user.id };
-      const access_token = this.jwtService.sign(payload);
+  async login(user: any) {
+    const payload = { username: user.username, sub: user.id };
+    const access_token = this.jwtService.sign(payload);
 
-      const { password, ...userInfo } = await this.userRepository.findOne({ 
-        where: { id: user.id } 
-      });
+    const { password, ...userInfo } = await this.userRepository.findOne({ 
+      where: { id: user.id } 
+    });
 
-      return {
-        status: true,
-        message: 'Başarıyla giriş yapıldı',
+    return {
+      message: 'Başarıyla giriş yapıldı',
+      data: {
         user: userInfo,
         access_token
-      };
-    } catch (error) {
-      return {
-        status: false,
-        message: 'Giriş yapılırken bir hata oluştu'
-      };
-    }
+      }
+    };
   }
 }

@@ -2,7 +2,7 @@ import { Controller, Post, Get, Body, Param, UseGuards, Request, Put, Delete } f
 import { EventService } from '@event/event.service';
 import { CreateEventDto } from '@event/dtos/create-event.dto';
 import { SearchEventsDto } from '@event/dtos/search-events.dto';
-import { JwtAuthGuard } from '@user/jwt.auth.guard';
+import { JwtAuthGuard } from '@common/guards/jwt.auth.guard';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { UpdateEventDto } from '@event/dtos/update-event.dto';
 
@@ -17,7 +17,11 @@ export class EventController {
   @ApiOperation({ summary: 'Yeni etkinlik oluştur' })
   @ApiResponse({ status: 201, description: 'Etkinlik başarıyla oluşturuldu' })
   async createEvent(@Request() req, @Body() createEventDto: CreateEventDto) {
-    return this.eventService.createEvent(createEventDto, req.user);
+    const user = { 
+      id: req.user.id, 
+      username: req.user.username 
+    };
+    return this.eventService.createEvent(createEventDto, user);
   }
 
   @Post('SearchEvents')
@@ -48,11 +52,11 @@ export class EventController {
   }
 
   @Delete('DeleteEvent/:id')
-@ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
-@ApiOperation({ summary: 'Etkinlik sil' })
-@ApiResponse({ status: 200, description: 'Etkinlik başarıyla silindi' })
-async deleteEvent(@Param('id') id: string, @Request() req) {
-  return this.eventService.deleteEvent(id, req.user);
-}
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Etkinlik sil' })
+  @ApiResponse({ status: 200, description: 'Etkinlik başarıyla silindi' })
+  async deleteEvent(@Param('id') id: string, @Request() req) {
+    return this.eventService.deleteEvent(id, req.user);
+  }
 }
