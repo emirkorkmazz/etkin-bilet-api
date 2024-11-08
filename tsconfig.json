@@ -19,7 +19,8 @@
       "@auth/*": ["src/modules/auth/*"],
       "@user/*": ["src/modules/user/*"],
       "@event/*": ["src/modules/event/*"],
-      "@ticket/*": ["src/modules/ticket/*"]
+      "@ticket/*": ["src/modules/ticket/*"],
+      "@common/*": ["src/common/*"]
     },
     "incremental": true,
     "skipLibCheck": true,

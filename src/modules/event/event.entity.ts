@@ -1,4 +1,4 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn } from 'typeorm';
 import { ApiProperty } from '@nestjs/swagger';
 import { User } from '@auth/user.entity';
 
@@ -52,8 +52,12 @@ export class Event {
   @Column()
   image: string;
 
-  @ManyToOne(() => User, user => user.id)
+  @ManyToOne(() => User)
+  @JoinColumn({ name: 'organizerId' })
   organizer: User;
+
+  @Column({ nullable: true }) // nullable: true yerine false yapıyoruz
+  organizerId: string;
 
   @CreateDateColumn()
   createdAt: Date;

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Event } from '@event/event.entity';
@@ -7,6 +7,11 @@ import { User } from '@auth/user.entity';
 import { SearchEventsDto } from '@event/dtos/search-events.dto';
 import { UpdateEventDto } from '@event/dtos/update-event.dto';
 
+interface EventCreator {
+    id: string;
+    username: string;
+  }
+
 @Injectable()
 export class EventService {
   constructor(
@@ -14,175 +19,199 @@ export class EventService {
     private readonly eventRepository: Repository<Event>,
   ) {}
 
-  async createEvent(createEventDto: CreateEventDto, user: User) {
+
+
+  async createEvent(createEventDto: CreateEventDto, user: EventCreator) {
     try {
       const event = this.eventRepository.create({
         ...createEventDto,
         organizer: user,
+        organizerId: user.id,
         availableTickets: createEventDto.totalTickets,
       });
-
-      await this.eventRepository.save(event);
-
-      return {
-        status: true,
-        message: 'Etkinlik başarıyla oluşturuldu',
-        event: {
-          id: event.id,
-          title: event.title,
-          date: event.date,
-          city: event.city,
-          district: event.district,
-        }
-      };
-    } catch (error) {
-      return {
-        status: false,
-        message: 'Etkinlik oluşturulurken bir hata oluştu'
-      };
-    }
-  }
-
-  async searchEvents(searchEventsDto: SearchEventsDto) {
-    try {
-      const { page = 1, pageSize = 20 } = searchEventsDto;
-      
-      const skip = (page - 1) * pageSize;
   
-      const [events, total] = await this.eventRepository.findAndCount({
-        where: { isActive: true },
-        order: { date: 'ASC' },
-        skip,
-        take: pageSize,
+      const savedEvent = await this.eventRepository.save(event);
+  
+      const createdEvent = await this.eventRepository.findOne({
+        where: { id: savedEvent.id },
         relations: ['organizer']
       });
   
+      if (!createdEvent || !createdEvent.organizer) {
+        throw new Error('Event creation failed');
+      }
+  
       return {
         status: true,
-        totalCount: total,
-        page,
-        pageSize,
-        events
+        message: 'Etkinlik başarıyla oluşturuldu',
+        data: {
+          id: createdEvent.id,
+          title: createdEvent.title,
+          description: createdEvent.description,
+          date: createdEvent.date,
+          city: createdEvent.city,
+          district: createdEvent.district,
+          address: createdEvent.address,
+          totalTickets: createdEvent.totalTickets,
+          availableTickets: createdEvent.availableTickets,
+          ticketPrice: createdEvent.ticketPrice,
+          isActive: createdEvent.isActive,
+          image: createdEvent.image,
+          createdAt: createdEvent.createdAt,
+          updatedAt: createdEvent.updatedAt,
+          organizer: {
+            id: createdEvent.organizer.id,
+            username: createdEvent.organizer.username,
+            name: createdEvent.organizer.name,
+            surname: createdEvent.organizer.surname
+          }
+        }
       };
     } catch (error) {
-      return {
-        status: false,
-        message: 'Etkinlikler getirilirken bir hata oluştu'
-      };
+      throw new Error(`Event creation failed: ${error.message}`);
     }
   }
 
-  async getEventById(id: string) {
-    try {
-      const event = await this.eventRepository.findOne({
-        where: { id, isActive: true }
+
+  async searchEvents(searchEventsDto: SearchEventsDto) {
+    const { 
+      page = 1, 
+      pageSize = 20, 
+      title, 
+      city, 
+      date 
+    } = searchEventsDto;
+    
+    const skip = (page - 1) * pageSize;
+  
+    const queryBuilder = this.eventRepository.createQueryBuilder('event')
+      .leftJoinAndSelect('event.organizer', 'organizer')
+      .where('event.isActive = :isActive', { isActive: true });
+  
+    if (title) {
+      queryBuilder.andWhere('LOWER(event.title) LIKE LOWER(:title)', { 
+        title: `%${title}%` 
       });
-
-      if (!event) {
-        return {
-          status: false,
-          message: 'Etkinlik bulunamadı'
-        };
-      }
-
-      return {
-        status: true,
-        message: 'Etkinlik başarıyla getirildi',
-        event
-      };
-    } catch (error) {
-      return {
-        status: false,
-        message: 'Etkinlik getirilirken bir hata oluştu'
-      };
     }
+  
+    if (city) {
+      queryBuilder.andWhere('LOWER(event.city) = LOWER(:city)', { city });
+    }
+  
+    if (date) {
+      queryBuilder.andWhere('event.date >= :date', { date });
+    }
+  
+    queryBuilder
+      .orderBy('event.date', 'ASC')
+      .skip(skip)
+      .take(pageSize);
+  
+    const [events, total] = await queryBuilder.getManyAndCount();
+  
+    return {
+      status: true,
+      message: 'Etkinlikler başarıyla getirildi',
+      data: {
+        events: events.map(event => ({
+          id: event.id,
+          title: event.title,
+          description: event.description,
+          date: event.date,
+          city: event.city,
+          district: event.district,
+          address: event.address,
+          totalTickets: event.totalTickets,
+          availableTickets: event.availableTickets,
+          ticketPrice: event.ticketPrice,
+          isActive: event.isActive,
+          image: event.image,
+          createdAt: event.createdAt,
+          updatedAt: event.updatedAt,
+          organizer: event.organizer ? {
+            id: event.organizer.id,
+            username: event.organizer.username,
+            name: event.organizer.name,
+            surname: event.organizer.surname
+          } : null
+        })),
+        totalCount: total,
+        page,
+        pageSize,
+        totalPages: Math.ceil(total / pageSize)
+      }
+    };
+  }
+
+
+  async getEventById(id: string) {
+    const event = await this.eventRepository.findOne({
+      where: { id, isActive: true }
+    });
+
+    if (!event) {
+      throw new NotFoundException('Etkinlik bulunamadı');
+    }
+
+    return {
+      message: 'Etkinlik başarıyla getirildi',
+      data: event
+    };
   }
 
 
   async updateEvent(id: string, updateEventDto: UpdateEventDto, user: User) {
-    try {
-      const event = await this.eventRepository.findOne({
-        where: { id, isActive: true },
-        relations: ['organizer']
-      });
-  
-      if (!event) {
-        return {
-          status: false,
-          message: 'Etkinlik bulunamadı'
-        };
-      }
-  
-      // Etkinliği sadece organizatör güncelleyebilir
-      if (event.organizer.id !== user.id) {
-        return {
-          status: false,
-          message: 'Bu etkinliği güncelleme yetkiniz yok'
-        };
-      }
-  
-      // Eğer totalTickets güncelleniyorsa, availableTickets'ı da güncelle
-      if (updateEventDto.totalTickets) {
-        const ticketDifference = updateEventDto.totalTickets - event.totalTickets;
-        updateEventDto['availableTickets'] = event.availableTickets + ticketDifference;
-      }
-  
-      await this.eventRepository.update(id, updateEventDto);
-  
-      const updatedEvent = await this.eventRepository.findOne({
-        where: { id }
-      });
-  
-      return {
-        status: true,
-        message: 'Etkinlik başarıyla güncellendi',
-        event: updatedEvent
-      };
-    } catch (error) {
-      return {
-        status: false,
-        message: 'Etkinlik güncellenirken bir hata oluştu'
-      };
+    const event = await this.eventRepository.findOne({
+      where: { id, isActive: true },
+      relations: ['organizer']
+    });
+
+    if (!event) {
+      throw new NotFoundException('Etkinlik bulunamadı');
     }
+
+    if (event.organizer.id !== user.id) {
+      throw new UnauthorizedException('Bu etkinliği güncelleme yetkiniz yok');
+    }
+
+    if (updateEventDto.totalTickets) {
+      const ticketDifference = updateEventDto.totalTickets - event.totalTickets;
+      updateEventDto['availableTickets'] = event.availableTickets + ticketDifference;
+    }
+
+    await this.eventRepository.update(id, updateEventDto);
+
+    const updatedEvent = await this.eventRepository.findOne({
+      where: { id }
+    });
+
+    return {
+      message: 'Etkinlik başarıyla güncellendi',
+      data: updatedEvent
+    };
   }
 
 
 
   async deleteEvent(id: string, user: User) {
-    try {
-      const event = await this.eventRepository.findOne({
-        where: { id, isActive: true },
-        relations: ['organizer']
-      });
-  
-      if (!event) {
-        return {
-          status: false,
-          message: 'Etkinlik bulunamadı'
-        };
-      }
-  
-      // Etkinliği sadece organizatör silebilir
-      if (event.organizer.id !== user.id) {
-        return {
-          status: false,
-          message: 'Bu etkinliği silme yetkiniz yok'
-        };
-      }
-  
-      // Soft delete - isActive'i false yapalım
-      event.isActive = false;
-      await this.eventRepository.save(event);
-  
-      return {
-        status: true,
-        message: 'Etkinlik başarıyla silindi'
-      };
-    } catch (error) {
-      return {
-        status: false,
-        message: 'Etkinlik silinirken bir hata oluştu'
-      };
+    const event = await this.eventRepository.findOne({
+      where: { id, isActive: true },
+      relations: ['organizer']
+    });
+
+    if (!event) {
+      throw new NotFoundException('Etkinlik bulunamadı');
     }
+
+    if (event.organizer.id !== user.id) {
+      throw new UnauthorizedException('Bu etkinliği silme yetkiniz yok');
+    }
+
+    event.isActive = false;
+    await this.eventRepository.save(event);
+
+    return {
+      message: 'Etkinlik başarıyla silindi'
+    };
   }
 }
